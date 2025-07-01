@@ -41,7 +41,6 @@ Seurat_to_csv <- function(seurat_obj, export_dir){
 ########################################################
 # Import into Seurat
 csv_to_Seurat <- function(import_dir, assay_name){
-  browser()
   counts_mat <- read.table(paste(import_dir, "/X.csv", sep = ""), header = FALSE, sep = ",", fill = TRUE) %>% as.matrix() %>% t()
   obs_mat <- read.table(paste(import_dir,"/obs.csv", sep = ""), header = TRUE, sep = ",", row.names = 1, fill = TRUE)
   var_mat <- read.table(paste(import_dir,"/var.csv", sep = ""), header = TRUE, sep = ",", row.names = 1, fill = TRUE)
@@ -66,7 +65,20 @@ csv_to_Seurat <- function(import_dir, assay_name){
   seurat_import <- AddMetaData(seurat_import, obs_mat)
   seurat_import[["pca"]] <- CreateDimReducObject(embeddings = as.matrix(X_pca), key = "pca_", assay = DefaultAssay(seurat_import))
   seurat_import[["umap"]] <- CreateDimReducObject(embeddings = as.matrix(X_umap), key = "umap_", assay = DefaultAssay(seurat_import))
-  seurat_import[["spatial"]] <- CreateFOV(CreateCentroids(spatial), assay = assay_name)
+  seurat_import[["spatial"]] <- CreateFOV(CreateCentroids(spatial[,c(1,2)]), assay = assay_name)
   
   return(seurat_import)
+}
+
+Seurat_to_SPE <- function(seurat_obj){
+  spE <- SpatialExperiment(assay = GetAssayData(seurat_obj), colData = seurat_obj[[]], spatialCoords = seurat_obj@images$image$centroids@coords)
+  return(spE)
+}
+
+Seurat_to_SPIATSPE <- function(seurat_obj){
+  spE <- format_image_to_spe(format = "general", 
+                             intensity_matrix = as.matrix(GetAssayData(seurat_obj)),
+                             phenotypes = as.character(Idents(seurat_obj)), 
+                             coord_x = seurat_obj@images$image$centroids@coords[,1],coord_y = seurat_obj@images$image$centroids@coords[,2])
+  return(spE)
 }
