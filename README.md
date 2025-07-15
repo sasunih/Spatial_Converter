@@ -1,7 +1,5 @@
 # Spatial Converter
-[Seurat by satijalab](https://satijalab.org/seurat/), [AnnData by scverse](https://anndata.readthedocs.io/en/stable/) and [BioConductor's SpatialExperiment](https://www.bioconductor.org/packages/release/bioc/html/SpatialExperiment.html) are some of the most commonly used data objects for spatial omics data. These functions provide the ability to convert between Seurat and the other data objects. 
-
-Conversion between AnnData and Seurat uses csv files as an intermediary. 
+[Seurat by satijalab](https://satijalab.org/seurat/), [AnnData by scverse](https://anndata.readthedocs.io/en/stable/) and [BioConductor's SpatialExperiment](https://www.bioconductor.org/packages/release/bioc/html/SpatialExperiment.html) are some of the most commonly used data objects for spatial omics data. These functions provide the ability to convert between Seurat and the other data objects, using csv files as an intermediary. 
 
 # Dependencies
 R:
@@ -25,7 +23,7 @@ from anndata_functions import *
 Anndata_to_csv(adata, export_dir)
 ```
 **Arguments:**
-- *adata:* Anndata object in workspace
+- *adata:* AnnData object in workspace
 - *export_dir:* String. Directory for csv files to be written to
 
 **Returns:**
