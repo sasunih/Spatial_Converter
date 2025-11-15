@@ -34,7 +34,28 @@ Seurat_to_csv <- function(seurat_obj, export_dir){
   if (!is.null(Images(seurat_obj))){
   spatial_list<- lapply(Images(seurat_obj), function(x){seurat_obj@images[[x]]$centroids@coords})
   spatial <- do.call("rbind", spatial_list)
-  colnames(spatial) <- sapply(1:ncol(spatial), function(x){paste("spatial",x,sep = "")})}
+  spatial <- spatial[,c(2,1)]
+  colnames(spatial) <- sapply(1:ncol(spatial), function(x){paste("spatial",x,sep = "")})
+  
+  if (.hasSlot(seurat_obj@images[[DefaultFOV(seurat_obj)]], "image")){
+    if (!file.exists(paste(export_dir,"/uns",sep = ''))){
+      dir.create(file.path(paste(export_dir,'/uns', sep = '')))
+    }
+    
+    spatial_r <- as.matrix(seurat_obj@images[[DefaultFOV(seurat_obj)]]@image[,,1]) * 255
+    spatial_g <- as.matrix(seurat_obj@images[[DefaultFOV(seurat_obj)]]@image[,,2]) * 255
+    spatial_b <- as.matrix(seurat_obj@images[[DefaultFOV(seurat_obj)]]@image[,,3]) * 255
+    write.table(spatial_r,paste(export_dir, "/uns/spatial_lowres_r.csv", sep = ""), row.names = FALSE, col.names = FALSE, sep = ",")
+    write.table(spatial_g,paste(export_dir, "/uns/spatial_lowres_g.csv", sep = ""), row.names = FALSE, col.names = FALSE, sep = ",")
+    write.table(spatial_b,paste(export_dir, "/uns/spatial_lowres_b.csv", sep = ""), row.names = FALSE, col.names = FALSE, sep = ",")
+    
+    scale_factor_list <- as.list(ScaleFactors(seurat_obj@images[[DefaultFOV(seurat_obj)]]))
+    class(scale_factor_list) <- NULL
+    name_map <- c(spot = 'spot_diameter_fullres', fiducial = 'fiducial_diameter_fullres', hires = 'tissue_hires_scalef', lowres = 'tissue_lowres_scalef')
+    names(scale_factor_list) <- recode(names(scale_factor_list), !!!name_map)
+    write.table(data.frame(scale_factor_list), paste(export_dir, "/uns/spot_size.csv", sep = ""), row.names = FALSE, sep = ",")
+  }
+  }
   
   vars <- c("X_pca", "X_umap", "spatial")
   # Get only the ones that exist
@@ -52,11 +73,40 @@ Seurat_to_csv <- function(seurat_obj, export_dir){
 csv_to_Seurat <- function(import_dir, assay_name){
   counts_mat <- read.table(paste(import_dir, "/X.csv", sep = ""), header = FALSE, sep = ",", fill = TRUE) %>% as.matrix() %>% t()
   obs_mat <- read.table(paste(import_dir,"/obs.csv", sep = ""), header = TRUE, sep = ",", row.names = 1, fill = TRUE)
-  var_mat <- read.table(paste(import_dir,"/var.csv", sep = ""), header = TRUE, sep = ",", row.names = 1, fill = TRUE)
+  var_mat <- read.table(paste(import_dir,"/var.csv", sep = ""), header = TRUE, sep = ",", row.names = NULL, fill = TRUE)
+  rownames(var_mat) <- make.unique(var_mat[,1])
+  var_mat <- var_mat[,-1]
   if (file.exists(paste(import_dir,"/obsm.csv", sep = ""))){
     content <- readLines(paste(import_dir, '/obsm.csv', sep = ""), n = 1, warn = FALSE)
     if (content != ""){
       obsm_mat <- read.table(paste(import_dir, "/obsm.csv", sep = ""), header = TRUE, sep = ",", fill = TRUE)}
+  }
+  
+  if (file.exists(paste(import_dir, "/uns/spot_size.csv", sep = ''))){
+    
+    scale_factors <- read.table(paste(import_dir,'/uns/spot_size.csv', sep = ''), sep = ',', header = TRUE)
+    
+    if (file.exists(paste(import_dir, "/uns/spatial_lowres_r.csv", sep = ''))){
+      spatial_r <- as.array(as.matrix(read.table(paste(import_dir,'/uns/spatial_lowres_r.csv', sep = ''), sep = ',', header = FALSE))) / 255
+      spatial_g <- as.array(as.matrix(read.table(paste(import_dir,'/uns/spatial_lowres_g.csv', sep = ''), sep = ',', header = FALSE))) / 255
+      spatial_b <- as.array(as.matrix(read.table(paste(import_dir,'/uns/spatial_lowres_b.csv', sep = ''), sep = ',', header = FALSE))) / 255
+      
+      dimnames(spatial_r) <- NULL
+      dimnames(spatial_g) <- NULL
+      dimnames(spatial_b) <- NULL
+    }
+    else if (file.exists(paste(import_dir, "/uns/spatial_hires_r.csv", sep = ''))){
+      warning("Low resolution image missing. Using high resolution image instead.")
+      
+      spatial_r <- as.array(as.matrix(read.table(paste(import_dir,'/uns/spatial_hires_r.csv', sep = ''), sep = ',', header = FALSE))) / 255
+      spatial_g <- as.array(as.matrix(read.table(paste(import_dir,'/uns/spatial_hires_g.csv', sep = ''), sep = ',', header = FALSE))) / 255
+      spatial_b <- as.array(as.matrix(read.table(paste(import_dir,'/uns/spatial_hires_b.csv', sep = ''), sep = ',', header = FALSE))) / 255
+      
+      dimnames(spatial_r) <- NULL
+      dimnames(spatial_g) <- NULL
+      dimnames(spatial_b) <- NULL
+    }
+    spatial_image <- array(c(spatial_r, spatial_g, spatial_b), dim = c(nrow(spatial_r), ncol(spatial_r), 3))
   }
   
   rownames(counts_mat) <- rownames(var_mat)
@@ -82,9 +132,18 @@ csv_to_Seurat <- function(import_dir, assay_name){
   
   if (any(startsWith(names(obsm_mat), "spatial"))){
   spatial <- select(obsm_mat, starts_with("spatial"))
+  spatial[,c(1,2)] <- spatial[,c(2,1)]
   colnames(spatial) <- sapply(1:ncol(spatial), function(x){paste("spatial", x, sep = "_")})
   rownames(spatial) <- rownames(obs_mat)
-  seurat_import[["spatial"]] <- CreateFOV(CreateCentroids(spatial[,c(1,2)]), assay = assay_name)
+  fov_curr <- CreateFOV(CreateCentroids(spatial[,c(1,2)]), assay = assay_name)
+  
+  if (exists('spatial_image')){
+    visium_new = new("VisiumV2", image = spatial_image, scale.factors = scalefactors(spot = scale_factors$spot_diameter_fullres, fiducial = scale_factors$fiducial_diameter_fullres, hires = scale_factors$tissue_hires_scalef, lowres = scale_factors$tissue_lowres_scalef), boundaries = list(centroids = CreateCentroids(spatial[,c(1,2)])), assay = assay_name, key = Key(fov_curr))
+    seurat_import[['spatial']] <- visium_new
+  }
+  else{
+    seurat_import[["spatial"]] <- fov_curr
+  }
   }
   }
   
